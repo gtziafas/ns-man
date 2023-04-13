@@ -1,0 +1,1 @@
+{"image_resolution": [480, 640], "behind_threshold": 96, "next_threshold": 0.25, "size_threshold": 0.005, "use_3d": true, "vectorized": false, "workspace_dimensions": [2, 1.57, 0.25]}
