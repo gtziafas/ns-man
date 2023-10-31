@@ -67,7 +67,7 @@ class HRelationGrounder(nn.Module):
         self.ignore_idx = -100
 
         if load is not None:
-          print(f'Loading relation grounder weights from {load}...')
+          print(f'Loading hyper-relation grounder weights from {load}...')
           self.load_state_dict(torch.load(load))
 
   def forward_step(self, delta_x: Tensor, q: Tensor) -> Tensor:

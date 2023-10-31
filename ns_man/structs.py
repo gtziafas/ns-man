@@ -76,6 +76,8 @@ class ObjectProto:
     pose_3d: Pose3d
     #position_2d: Tuple[float, float]
 
+    def __iter__(self):
+        return iter([self.label, self.contour, self.pose_3d])
 @dataclass
 class Object:
     label: str 
@@ -125,6 +127,14 @@ class SceneRGB(Scene):
 class SceneGraph:
     nodes: Sequence[Object]
     edges: Dict[str, List[int]]
+
+    @property
+    def objects(self):
+        return self.nodes
+
+    @property
+    def relationships(self):
+        return self.relationships
 
 
 @dataclass

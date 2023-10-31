@@ -110,8 +110,19 @@ class VisualGrounder(nn.Module):
       # unique object -> maximum row-wise score
       return diff.sum(1).argmax(0).item() 
     else:
-      # many objects -> non-zero col-wise score
-      return torch.argwhere(diff.sum(0)==0).squeeze().tolist()
+      # many objects -> pos row-wise sscore && non-zero col-wise score
+      # rows = torch.argwhere(diff.sum(1)>0).squeeze().tolist()
+      pos = torch.where(cossim.squeeze() > 0.25)[0].tolist()
+      # pos = [pos] if isinstance(pos, int) else pos
+      cols = torch.where(diff.sum(0)==0)[0].tolist()
+      # cols = [cols] if isinstance(cols, int) else cols
+      pos = list(set(pos).intersection(set(cols)))
+      return pos
+      #return cols
+      # rows = [rows] if isinstance(rows, int) else rows
+      # cols = [cols] if isinstance(cols, int) else cols
+      # return list(set(rows).intersection(set(cols)))
+      # return torch.argwhere(cossim.squeeze() > 0.15).squeeze().tolist()
 
   @torch.no_grad()
   def predict_query(self, vis_obj: Tensor, qs: Tensor) -> Tensor:

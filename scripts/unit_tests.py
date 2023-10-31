@@ -1,12 +1,12 @@
 from ns_man.structs import *
-from ns_man.programs.executor import HOTSExecutor
+from ns_man.programs.executor import HotsSymbolicExecutor, HotsNSExecutor
 from ns_man.programs.tokenizer import postprocess_programs
 from ns_man.language.seq2seq import make_seq2seq_net
 from ns_man.language.parser import LanguageParser
 from ns_man.language.word_embedding import make_word_embedder
 from ns_man.grounders.spatial import RelationGrounder, HRelationGrounder
 from ns_man.grounders.visual import VisualGrounder
-from ns_man.grounders.modules import GroundersInterface
+from ns_man.grounders.modules import make_concept_grounders
 from ns_man.utils.scene_graph import *
 
 import json
@@ -51,7 +51,7 @@ def get_question_type(program):
 
 
 def unit_test_groundtruth_executor_nsvqa():
-  executor = HOTSExecutor(METADATA_PATH,
+  executor = HotsSymbolicExecutor(METADATA_PATH,
               SYNONYMS_PATH,
               SCENES_TRAIN_PATH,
               SCENES_VAL_PATH,
@@ -71,7 +71,7 @@ def unit_test_groundtruth_executor_nsvqa():
 
 
 def unit_test_seq2seq_executor_nsvqa():
-  executor = HOTSExecutor(METADATA_PATH,
+  executor = HotsSymbolicExecutor(METADATA_PATH,
               SYNONYMS_PATH,
               SCENES_TRAIN_PATH,
               SCENES_VAL_PATH,
@@ -108,7 +108,7 @@ def unit_test_seq2seq_executor_nsvqa():
 
 
 def test_gen_seq2seq_executor_nsvqa():
-  executor = HOTSExecutor(METADATA_PATH,
+  executor = HotsSymbolicExecutor(METADATA_PATH,
               SYNONYMS_PATH,
               SCENES_TRAIN_PATH,
               SCENES_VAL_PATH,
@@ -146,8 +146,9 @@ def test_gen_seq2seq_executor_nsvqa():
   results = {k: round(100 * v1/v2, 2) for (k,v1), (_,v2) in zip(correct.items(), total.items())}
   print(results)
 
+
 def unit_test_groundtruth_executor_nsman():
-  executor = HOTSExecutor(METADATA_PATH,
+  executor = HotsSymbolicExecutor(METADATA_PATH,
               SYNONYMS_PATH,
               SCENES_TRAIN_PATH,
               SCENES_VAL_PATH,
@@ -179,8 +180,92 @@ def unit_test_groundtruth_executor_nsman():
   #print('Passed.')
 
 
+def unit_test_perception_nsman():
+  executor = HotsNSExecutor(METADATA_PATH,
+              SYNONYMS_PATH,
+              SCENES_VEC_TRAIN_PATH,
+              SCENES_VEC_VAL_PATH,
+              with_synonyms=True,
+              vectorized=True
+  )
+  ds_val = json.load(open(QUESTIONS_VAL_PATH))
+  correct, total = {'overall': 0}, {'overall': 0}; crashed=0
+  for sample in tqdm(ds_val):
+    q_type = get_question_type(sample['groundtruth_program'])
+    p = []
+    for j,node in enumerate(sample["seq2seq_output"]):
+      tmp = [node['value_inputs'][0]] if node['value_inputs'] else []
+      if node["value_inputs"]:
+        x = node["value_inputs"][0]
+        assert x in sample["concept_mapping"].keys(),  (x, sample["tagger_input"],  sample["tagger_output"], sample["seq2seq_input"], sample["concept_mapping"])
+        y = sample["concept_mapping"][x]
+        tmp = [y]
+      p.append({'type':node['type'], 'value_inputs':tmp})
+    pp = postprocess_programs([p], reverse=False, tokenize=True)[0]
+    a = sample['answer']
+    assert isinstance(a, str)
+    iid = sample['image_index']
+    pred = executor.run_dataset(pp, iid, "val")
+    total[q_type] = 1 if q_type not in total.keys() else total[q_type] + 1
+    total['overall'] += 1
+    if pred == a:
+      correct[q_type] = 1 if q_type not in correct.keys() else correct[q_type] + 1
+      correct['overall'] += 1
+  results = {k: round(100 * v1/v2, 2) for (k,v1), (_,v2) in zip(correct.items(), total.items())}
+  print(results)
+  print(crashed, crashed/len(ds_val))
+
+
+def unit_test_pipeline_nsman(groundtruth_tags = False):
+  executor = HotsNSExecutor(METADATA_PATH,
+              SYNONYMS_PATH,
+              SCENES_VEC_TRAIN_PATH,
+              SCENES_VEC_VAL_PATH,
+              with_synonyms=True,
+              vectorized=True
+  )
+  ds_val = json.load(open(QUESTIONS_VAL_PATH))
+  parser = LanguageParser({'use_bert_tagger':False, 
+    'device': 'cuda', 
+    'vocabs_path': VOCABS_PATH, 
+    'bert_checkpoint': './checkpoints/Tag/bert/pytorch_model.bin',
+    'tagger_rnn_cfg': "./config/tagger_rnn_cfg.json"}
+  )
+  correct, total = {'overall': 0}, {'overall': 0}; crashed=0
+  for sample in tqdm(ds_val):
+    q_type = get_question_type(sample['groundtruth_program'])
+    if groundtruth_tags:
+      # tags -> programs
+      tagged_input, tagged_replaced, concept_map = sample['seq2seq_input_single'], sample['seq2seq_input'], sample['concept_mapping']
+      p = parser._generate_program([tagged_input.split()], [tagged_replaced.split()], [concept_map])[0]
+    else:
+      # language -> tags -> programs
+      q = sample['tagger_input']
+      try:
+        p = parser.parse(q)
+      except:
+        # print(q, parser.tag(q))
+        # break
+        crashed +=1
+        continue 
+    # separate functions from arguments
+    # run and compare
+    a = sample['answer']
+    assert isinstance(a, str)
+    iid = sample['image_index']
+    pred = executor.run_dataset(p, iid, "val")
+    total[q_type] = 1 if q_type not in total.keys() else total[q_type] + 1
+    total['overall'] += 1
+    if pred == a:
+      correct[q_type] = 1 if q_type not in correct.keys() else correct[q_type] + 1
+      correct['overall'] += 1
+  results = {k: round(100 * v1/v2, 2) for (k,v1), (_,v2) in zip(correct.items(), total.items())}
+  print(results)
+  print(crashed, crashed/len(ds_val))
+
+
 def unit_test_seq2seq_executor_nsman(groundtruth_tags = False):
-  executor = HOTSExecutor(METADATA_PATH,
+  executor = HotsSymbolicExecutor(METADATA_PATH,
               SYNONYMS_PATH,
               SCENES_TRAIN_PATH,
               SCENES_VAL_PATH,
@@ -225,7 +310,7 @@ def unit_test_seq2seq_executor_nsman(groundtruth_tags = False):
 
 
 def test_gen_seq2seq_executor_nsman(groundtruth_tags = False):
-  executor = HOTSExecutor(METADATA_PATH,
+  executor = HotsSymbolicExecutor(METADATA_PATH,
               SYNONYMS_PATH,
               SCENES_TRAIN_PATH,
               SCENES_VAL_PATH,
@@ -537,7 +622,7 @@ def unit_test_hrel_grounder():
 
 
 def unit_test_concept_grounder():
-  GI = GroundersInterface("config/concept_grounding_interface.json")
+  GI = make_concept_grounders()
   synonyms = json.load(open(SYNONYMS_PATH))
   scenes_val = torch.load(SCENES_VEC_VAL_PATH)
   wrong_r = []
